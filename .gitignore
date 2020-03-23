@@ -1,1 +1,5 @@
 .idea
+
+# Compilation outputs
+bindata.go
+go-chat
