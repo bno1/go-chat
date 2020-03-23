@@ -5,7 +5,7 @@ SOURCES=main.go token_bucket.go $(ASSETFS_GOFILE)
 ASSETS=$(shell find public/ -type f)
 
 $(PROGRAM): $(SOURCES)
-	go build -o "$@" $(SOURCES)
+	go build -o "$@" $^
 
 $(ASSETFS_GOFILE): $(ASSETS)
 	go-bindata-assetfs -o "$@" $^
