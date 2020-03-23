@@ -1,7 +1,7 @@
 PROGRAM=go-chat
 ASSETFS_GOFILE=bindata.go
 
-SOURCES=main.go $(ASSETFS_GOFILE)
+SOURCES=main.go token_bucket.go $(ASSETFS_GOFILE)
 ASSETS=$(shell find public/ -type f)
 
 $(PROGRAM): $(SOURCES)

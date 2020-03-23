@@ -3,10 +3,15 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/websocket"
 )
+
+const MAX_MESSAGE_LEN = 4096
+const MAX_MESSAGES_PER_SEC = 1.0
+const MESSAGES_MAX_BURST = 3
 
 var clients = make(map[*websocket.Conn]bool) // connected clients
 var broadcast = make(chan Message)           // broadcast channel
@@ -55,8 +60,19 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	// Make sure we close the connection when the function returns
 	defer ws.Close()
 
+	ws.SetReadLimit(MAX_MESSAGE_LEN)
+
 	// Register our new client
 	clients[ws] = true
+
+	bucket, err := NewTokenBucket(
+		MESSAGES_MAX_BURST, MESSAGES_MAX_BURST, MAX_MESSAGES_PER_SEC)
+	if err != nil {
+		log.Printf("error %v", err)
+		return
+	}
+
+	last_message_time := time.Now()
 
 	for {
 		var msg Message
@@ -67,8 +83,23 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			delete(clients, ws)
 			break
 		}
-		// Send the newly received message to the broadcast channel
-		broadcast <- msg
+
+		// Update bucket
+		now := time.Now()
+		bucket.Update(now.Sub(last_message_time))
+		last_message_time = now
+
+		if bucket.TryConsumeToken() {
+			// Send the newly received message to the broadcast channel
+			broadcast <- msg
+		} else {
+			// User tries to send too fast
+			ws.WriteJSON(Message{
+				Email:    "",
+				Username: "system",
+				Message:  "Please wait before sending another message",
+			})
+		}
 	}
 }
 
