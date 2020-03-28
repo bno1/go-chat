@@ -43,6 +43,24 @@ func NewTokenBucket(
 	return bucket, nil
 }
 
+func (bucket *TokenBucket) UpdateParams(
+	capacity uint32,
+	tokens_per_sec float64,
+) {
+	bucket.capacity = capacity
+	bucket.tokens_per_sec = tokens_per_sec
+
+	// Limit tokens to new capacity
+	if bucket.tokens > capacity {
+		bucket.tokens = capacity
+	}
+
+	// Discard residue if the bucket is full
+	if bucket.tokens >= capacity {
+		bucket.residue = 0.0
+	}
+}
+
 func (bucket *TokenBucket) Update(delta_time time.Duration) {
 	// Compute how many tokens should be added during delta_time
 	// new_tokens_f = whole tokens as float
