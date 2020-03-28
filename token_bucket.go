@@ -8,10 +8,10 @@ import (
 
 type TokenBucket struct {
 	// Max tokens to hold
-	capacity uint32
+	capacity uint
 
 	// Current number of tokens in bucket
-	tokens uint32
+	tokens uint
 
 	// How many tokens are generated per second
 	tokens_per_sec float64
@@ -21,8 +21,8 @@ type TokenBucket struct {
 }
 
 func NewTokenBucket(
-	capacity uint32,
-	inital_tokens uint32,
+	capacity uint,
+	inital_tokens uint,
 	tokens_per_sec float64,
 ) (TokenBucket, error) {
 	bucket := TokenBucket{
@@ -44,7 +44,7 @@ func NewTokenBucket(
 }
 
 func (bucket *TokenBucket) UpdateParams(
-	capacity uint32,
+	capacity uint,
 	tokens_per_sec float64,
 ) {
 	bucket.capacity = capacity
@@ -68,7 +68,7 @@ func (bucket *TokenBucket) Update(delta_time time.Duration) {
 	new_tokens_f, new_residue := math.Modf(
 		delta_time.Seconds()*bucket.tokens_per_sec + bucket.residue)
 
-	new_tokens := uint32(new_tokens_f)
+	new_tokens := uint(new_tokens_f)
 
 	// This will be 0 when bucket is full
 	max_new_tokens := bucket.capacity - bucket.tokens

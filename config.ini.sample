@@ -1,0 +1,4 @@
+[Messages]
+MaxSocketMessageLen = 4096
+MaxMessagesPerSes = 1.0
+MaxMessagesBurst = 3

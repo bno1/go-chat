@@ -3,13 +3,18 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 type void struct{}
+
+const defaultConfigFilePath = "config.ini"
 
 var defaultConfig = Config{
 	MaxSocketMessageLen: 4096,
@@ -18,9 +23,13 @@ var defaultConfig = Config{
 }
 
 type Context struct {
-	configStore ConfigStore  // live configuration
-	clients     sync.Map     // connected clients
-	broadcast   chan Message // broadcast channel
+	configFilePath string
+
+	configStore   ConfigStore    // live configuration
+	clients       sync.Map       // connected clients
+	broadcast     chan Message   // broadcast channel
+	configUpdate  chan void      // config update notifications
+	signalChannel chan os.Signal // os signals channel
 
 	upgrader websocket.Upgrader
 }
@@ -118,19 +127,61 @@ func (ctx *Context) handleMessages() {
 	}
 }
 
+func (ctx *Context) reloadConfig() {
+	config, err := ReadConfig(ctx.configFilePath, &defaultConfig)
+	if err != nil {
+		log.Printf("Failed to reload config: %v", err)
+		return
+	}
+
+	ctx.configStore.UpdateConfig(config)
+}
+
+func (ctx *Context) handleConfigUpdates() {
+	for {
+		<-ctx.configUpdate
+		ctx.reloadConfig()
+	}
+}
+
+func (ctx *Context) handleSignal() {
+	for {
+		sig := <-ctx.signalChannel
+
+		switch sig {
+		case syscall.SIGUSR1:
+			// Reload config
+			ctx.configUpdate <- void{}
+		}
+	}
+}
+
 func main() {
+	// Init config with defaultConfig
 	configStore := NewConfigStore(defaultConfig)
+
+	// Websocket upgrader
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
 	}
 
+	// Server context
 	ctx := Context{
-		broadcast:   make(chan Message),
-		configStore: configStore,
-		upgrader:    upgrader,
+		configFilePath: defaultConfigFilePath,
+		broadcast:      make(chan Message),
+		configUpdate:   make(chan void),
+		signalChannel:  make(chan os.Signal, 10),
+		configStore:    configStore,
+		upgrader:       upgrader,
 	}
+
+	// Load configuration
+	ctx.reloadConfig()
+
+	// Install handler for signal SIGUSR1
+	signal.Notify(ctx.signalChannel, syscall.SIGUSR1)
 
 	// Use binary asset FileServer
 	http.Handle("/", http.FileServer(AssetFile()))
@@ -139,6 +190,12 @@ func main() {
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ctx.handleConnection(w, r)
 	})
+
+	// Start config updater
+	go ctx.handleConfigUpdates()
+
+	// Start signal handler
+	go ctx.handleSignal()
 
 	// Start listening for incoming chat messages
 	go ctx.handleMessages()

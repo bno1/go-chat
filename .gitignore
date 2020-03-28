@@ -3,3 +3,6 @@
 # Compilation outputs
 bindata.go
 go-chat
+
+# User-generated files
+config.ini
