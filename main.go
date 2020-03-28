@@ -27,7 +27,6 @@ type Context struct {
 
 // Message object
 type Message struct {
-	Email    string `json:"email"`
 	Username string `json:"username"`
 	Message  string `json:"message"`
 }
@@ -92,7 +91,6 @@ func (ctx *Context) handleConnection(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// User tries to send too fast
 			ws.WriteJSON(Message{
-				Email:    "",
 				Username: "system",
 				Message:  "Please wait before sending another message",
 			})
