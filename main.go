@@ -3,10 +3,13 @@ package main
 import (
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+type void struct{}
 
 var defaultConfig = Config{
 	MaxSocketMessageLen: 4096,
@@ -15,9 +18,9 @@ var defaultConfig = Config{
 }
 
 type Context struct {
-	configStore ConfigStore              // live configuration
-	clients     map[*websocket.Conn]bool // connected clients
-	broadcast   chan Message             // broadcast channel
+	configStore ConfigStore  // live configuration
+	clients     sync.Map     // connected clients
+	broadcast   chan Message // broadcast channel
 
 	upgrader websocket.Upgrader
 }
@@ -45,7 +48,7 @@ func (ctx *Context) handleConnection(w http.ResponseWriter, r *http.Request) {
 	ws.SetReadLimit(int64(config.MaxSocketMessageLen))
 
 	// Register our new client
-	ctx.clients[ws] = true
+	ctx.clients.Store(ws, void{})
 
 	bucket, err := NewTokenBucket(
 		config.MaxMessagesBurst, config.MaxMessagesBurst,
@@ -74,7 +77,7 @@ func (ctx *Context) handleConnection(w http.ResponseWriter, r *http.Request) {
 		err := ws.ReadJSON(&msg)
 		if err != nil {
 			log.Printf("error: %v", err)
-			delete(ctx.clients, ws)
+			ctx.clients.Delete(ws)
 			break
 		}
 
@@ -102,14 +105,18 @@ func (ctx *Context) handleMessages() {
 		// Grab the next message from the broadcast channel
 		msg := <-ctx.broadcast
 		// Send it out to every client that is currently connected
-		for client := range ctx.clients {
+		ctx.clients.Range(func(key, value interface{}) bool {
+			client := key.(*websocket.Conn)
 			err := client.WriteJSON(msg)
 			if err != nil {
 				log.Printf("error: %v", err)
 				client.Close()
-				delete(ctx.clients, client)
+
+				ctx.clients.Delete(client)
 			}
-		}
+
+			return true
+		})
 	}
 }
 
