@@ -1,14 +1,15 @@
 PROGRAM=go-chat
 ASSETFS_GOFILE=bindata.go
+ASSETS_DIR=public/
 
 SOURCES=main.go token_bucket.go $(ASSETFS_GOFILE)
-ASSETS=$(shell find public/ -type f)
+ASSETS=$(shell find "$(ASSETS_DIR)" -type f)
 
 $(PROGRAM): $(SOURCES)
 	go build -o "$@" $^
 
 $(ASSETFS_GOFILE): $(ASSETS)
-	go-bindata-assetfs -o "$@" $^
+	go-bindata -fs -prefix "$(ASSETS_DIR)" -o "$@" $^
 
 clean:
 	rm -rf $(PROGRAM)

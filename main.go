@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/websocket"
 )
 
@@ -32,9 +31,7 @@ type Message struct {
 
 func main() {
 	// Use binary asset FileServer
-	http.Handle("/",
-		http.FileServer(
-			&assetfs.AssetFS{Asset: Asset, AssetDir: AssetDir, AssetInfo: AssetInfo, Prefix: "public"}))
+	http.Handle("/", http.FileServer(AssetFile()))
 
 	// Configure websocket route
 	http.HandleFunc("/ws", handleConnections)
