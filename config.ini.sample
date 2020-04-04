@@ -2,3 +2,7 @@
 MaxSocketMessageLen = 4096
 MaxMessagesPerSes = 1.0
 MaxMessagesBurst = 3
+
+[Users]
+MinUsernameLength = 3
+MaxUsernameLength = 16

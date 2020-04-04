@@ -15,6 +15,12 @@ type Config struct {
 	// Max number of messages a user can send faster than MaxMessagesPerSec
 	// before MaxMessagesPerSec kicks in.
 	MaxMessagesBurst uint `section:"Messages"`
+
+	// Min length of a username
+	MinUsernameLength uint `section:"Users"`
+
+	// Max length of a username
+	MaxUsernameLength uint `section:"Users"`
 }
 
 // Each config has a tag (opaque numerical value). ConfigHandle stores the tag

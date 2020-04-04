@@ -17,9 +17,14 @@ type void struct{}
 const defaultConfigFilePath = "config.ini"
 
 var defaultConfig = Config{
+	// Messages
 	MaxSocketMessageLen: 4096,
 	MaxMessagesPerSec:   1.0,
 	MaxMessagesBurst:    3,
+
+	// Users
+	MinUsernameLength: 3,
+	MaxUsernameLength: 16,
 }
 
 type Context struct {
