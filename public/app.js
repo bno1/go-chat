@@ -6,7 +6,14 @@ new Vue({
         newMsg: '', // Holds new messages to be sent to the server
         chatContent: '', // A running list of chat messages displayed on the screen
         username: null, // Our username
-        joined: false // True if email and username have been filled in
+        joining: false, // True if username has been fielled in
+        joined: false, // True if username has been accepted
+    },
+
+    computed: {
+        usernameInputVisible: function() {
+            return !this.joining && !this.joined;
+        },
     },
 
     created: function() {
@@ -14,11 +21,29 @@ new Vue({
         this.ws = new WebSocket('ws://' + window.location.host + '/ws');
         this.ws.addEventListener('message', function(e) {
             var msg = JSON.parse(e.data);
-            self.chatContent += '<div class="chip">'
-                    + '<img src="' + self.gravatarURL(msg.username) + '">' // Avatar
-                    + msg.username
-                + '</div>'
-                + emojione.toImage(msg.message) + '<br/>'; // Parse emojis
+
+            if (msg.error !== undefined) {
+                if (self.joining) {
+                    self.joining = false
+                }
+
+                self.chatContent += '<div class="chip">Error</div>'
+                    + msg.error + '<br/>';
+            } else if (msg.status !== undefined) {
+                if (self.joining) {
+                    self.joining = false;
+                    self.joined = true;
+                }
+
+                self.chatContent += '<div class="chip">Status</div>'
+                    + msg.status + ', Users: ' + msg.user_count + '<br/>';
+            } else {
+                self.chatContent += '<div class="chip">'
+                        + '<img src="' + self.gravatarURL(msg.username) + '">' // Avatar
+                        + msg.username
+                    + '</div>'
+                    + emojione.toImage(msg.message) + '<br/>'; // Parse emojis
+            }
 
             var element = document.getElementById('chat-messages');
             element.scrollTop = element.scrollHeight; // Auto scroll to the bottom
@@ -28,12 +53,9 @@ new Vue({
     methods: {
         send: function () {
             if (this.newMsg != '') {
-                this.ws.send(
-                    JSON.stringify({
-                        username: this.username,
-                        message: $('<p>').html(this.newMsg).text() // Strip out html
-                    }
-                ));
+                this.ws.send(JSON.stringify({
+                    message: $('<p>').html(this.newMsg).text() // Strip out html
+                }));
                 this.newMsg = ''; // Reset newMsg
             }
         },
@@ -44,7 +66,13 @@ new Vue({
                 return
             }
             this.username = $('<p>').html(this.username).text();
-            this.joined = true;
+
+            this.joining = true;
+
+            // Send init message
+            this.ws.send(JSON.stringify({
+                username: this.username
+            }));
         },
 
         gravatarURL: function(username) {
