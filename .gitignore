@@ -1,7 +1,7 @@
 .idea
 
 # Compilation outputs
-bindata.go
+generated/*
 go-chat
 
 # User-generated files

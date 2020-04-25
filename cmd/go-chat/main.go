@@ -12,6 +12,9 @@ import (
 	"time"
 	"unsafe"
 
+	. "go-chat/generated"
+	. "go-chat/internal"
+
 	"github.com/gorilla/websocket"
 )
 

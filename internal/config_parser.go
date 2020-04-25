@@ -1,9 +1,10 @@
-package main
+package internal
 
 import (
 	"fmt"
-	"gopkg.in/ini.v1"
 	"reflect"
+
+	"gopkg.in/ini.v1"
 )
 
 // Parse an INI file and construct a config. Initialize the config with values

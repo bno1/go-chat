@@ -1,4 +1,4 @@
-module bno1/go-chat
+module go-chat
 
 go 1.14
 

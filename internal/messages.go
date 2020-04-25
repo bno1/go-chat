@@ -1,4 +1,4 @@
-package main
+package internal
 
 // Init message
 type InitMessage struct {
