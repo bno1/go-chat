@@ -16,6 +16,11 @@ type Config struct {
 	// before MaxMessagesPerSec kicks in.
 	MaxMessagesBurst uint `section:"Messages"`
 
+	// How many history messages should be send to new users. The maximum
+	// effective value is the same as MAX_MESSAGEBUFFER_SIZE, and values larger
+	// than that have no effect.
+	BacklogLength uint `section:"Messages"`
+
 	// Min length of a username
 	MinUsernameLength uint `section:"Users"`
 

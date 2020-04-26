@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -10,25 +11,30 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const MAX_MESSAGEBUFFER_SIZE = 4096
+const JANITOR_PERIOD = 10 * time.Second
+
 type Client struct {
 	username string
 	conn     *websocket.Conn
-	node     *Node
+
+	closed bool
+
+	writeChan  chan *websocket.PreparedMessage
+	readCursor uint64
+
+	configHandle ConfigHandle
+
+	tokenBucket TokenBucket
 
 	onceClose sync.Once
 }
 
-type ClientContext struct {
-	client Client
-}
-
 type ServerContext struct {
-	configStore *ConfigStore         // live configuration
-	broadcast   chan OutgoingMessage // broadcast channel
+	configStore   *ConfigStore  // live configuration
+	messageBuffer MessageBuffer // buffer for broadcast messages
 
 	usernames sync.Map // usernames of connected users
-
-	clients ConcurrentList // list of clients
 
 	nClients      uint32 // number active clients
 	nStaleClients uint32 // number of clients that have to be removed
@@ -36,22 +42,17 @@ type ServerContext struct {
 
 func NewServerContext(configStore *ConfigStore) ServerContext {
 	return ServerContext{
-		configStore: configStore,
-		broadcast:   make(chan OutgoingMessage),
+		configStore:   configStore,
+		messageBuffer: NewMessageBuffer(MAX_MESSAGEBUFFER_SIZE),
 	}
 }
 
 func (ctx *ServerContext) closeClient(client *Client) {
 	client.onceClose.Do(func() {
-		if client.node != nil {
-			client.node.Remove()
-		}
+		client.closed = true
+		close(client.writeChan)
 
 		atomic.AddUint32(&ctx.nStaleClients, 1)
-
-		if client.conn != nil {
-			client.conn.Close()
-		}
 
 		if len(client.username) > 0 {
 			ctx.usernames.Delete(client.username)
@@ -64,12 +65,12 @@ func (ctx *ServerContext) closeClient(client *Client) {
 }
 
 func (ctx *ServerContext) handleConnectionInit(
-	clientContext *ClientContext,
+	client *Client,
 	config *Config,
 ) error {
 	var msg InitMessage
 
-	err := clientContext.client.conn.ReadJSON(&msg)
+	err := client.conn.ReadJSON(&msg)
 	if err != nil {
 		log.Printf("error: %v", err)
 		return err
@@ -85,43 +86,70 @@ func (ctx *ServerContext) handleConnectionInit(
 		return fmt.Errorf("Username too long")
 	}
 
-	_, loaded := ctx.usernames.LoadOrStore(msg.Username, &clientContext.client)
+	_, loaded := ctx.usernames.LoadOrStore(msg.Username, client)
 
 	if loaded {
 		log.Printf("Username already used")
 		return fmt.Errorf("Username already used")
 	}
 
-	clientContext.client.username = msg.Username
+	client.username = msg.Username
 	atomic.AddUint32(&ctx.nClients, 1)
 
 	return nil
 }
 
-func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
-	var clientContext ClientContext
+func makePreparedJSONMessage(
+	v interface{},
+) (*websocket.PreparedMessage, error) {
+	bytes, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
 
-	clientContext.client.conn = ws
-	defer ctx.closeClient(&clientContext.client)
+	msg, err := websocket.NewPreparedMessage(websocket.TextMessage, bytes)
+	if err != nil {
+		return nil, err
+	}
 
-	configHandle := ctx.configStore.GetHandle()
-	config, changed := configHandle.GetConfig()
+	return msg, nil
+}
 
-	ws.SetReadLimit(int64(config.MaxSocketMessageLen))
+func (client *Client) writeJSON(v interface{}) error {
+	msg, err := makePreparedJSONMessage(v)
+	if err != nil {
+		return err
+	}
 
-	bucket, err := NewTokenBucket(
+	client.writeChan <- msg
+
+	return nil
+}
+
+func (ctx *ServerContext) setupClient(client *Client) error {
+	var err error
+
+	client.configHandle = ctx.configStore.GetHandle()
+
+	config, _ := client.configHandle.GetConfig()
+
+	client.conn.SetReadLimit(int64(config.MaxSocketMessageLen))
+
+	client.readCursor = ctx.messageBuffer.GetBacklogCursor(
+		uint64(config.BacklogLength))
+
+	client.tokenBucket, err = NewTokenBucket(
 		config.MaxMessagesBurst,
 		config.MaxMessagesBurst,
 		config.MaxMessagesPerSec)
 	if err != nil {
-		log.Printf("error %v", err)
-		return
+		return err
 	}
 
 	for {
-		err = ctx.handleConnectionInit(&clientContext, config)
+		err = ctx.handleConnectionInit(client, config)
 		if err == nil {
-			ws.WriteJSON(StatusMessage{
+			client.writeJSON(StatusMessage{
 				Status:    "Connected",
 				UserCount: ctx.nClients,
 			})
@@ -129,42 +157,42 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
 		}
 
 		if websocket.IsUnexpectedCloseError(err) {
-			log.Printf("connection closed: %v", err)
-			return
+			return err
 		}
 
-		ws.WriteJSON(ErrorMessage{
+		client.writeJSON(ErrorMessage{
 			Error: err.Error(),
 		})
 	}
 
-	listNode := NewNode(&clientContext.client)
-	clientContext.client.node = &listNode
-	ctx.clients.Add(&listNode)
+	return nil
+}
 
+func (client *Client) updateConfig() {
+	config, changed := client.configHandle.GetConfig()
+
+	if changed {
+		client.conn.SetReadLimit(int64(config.MaxSocketMessageLen))
+		client.tokenBucket.UpdateParams(
+			config.MaxMessagesBurst,
+			config.MaxMessagesPerSec)
+	}
+}
+
+func (ctx *ServerContext) clientReader(client *Client) {
 	last_message_time := time.Now()
 
 	for {
-		if clientContext.client.node.Removed() {
+		if client.closed {
 			break
 		}
 
-		config, changed = configHandle.GetConfig()
-		if changed {
-			// log.Printf("updating config")
-			ws.SetReadLimit(int64(config.MaxSocketMessageLen))
-			bucket.UpdateParams(
-				config.MaxMessagesBurst,
-				config.MaxMessagesPerSec)
-		}
-
-		// Discard reference to config
-		config = nil
+		client.updateConfig()
 
 		var msg IncomingMessage
 
 		// Read in a new message as JSON and map it to a Message object
-		err := ws.ReadJSON(&msg)
+		err := client.conn.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err) {
 				log.Printf("connection closed: %v", err)
@@ -177,49 +205,101 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
 
 		// Update bucket
 		now := time.Now()
-		bucket.Update(now.Sub(last_message_time))
+		client.tokenBucket.Update(now.Sub(last_message_time))
 		last_message_time = now
 
-		if bucket.TryConsumeToken() {
-			// Send the newly received message to the broadcast channel
-			ctx.broadcast <- OutgoingMessage{
-				Username: clientContext.client.username,
+		if client.tokenBucket.TryConsumeToken() {
+			pmsg, err := makePreparedJSONMessage(OutgoingMessage{
+				Username: client.username,
 				Message:  msg.Message,
+			})
+
+			if err != nil {
+				client.writeJSON(ErrorMessage{
+					Error: "Failed to encode message",
+				})
 			}
+
+			ctx.messageBuffer.Put(pmsg)
 		} else {
 			// User tries to send too fast
-			ws.WriteJSON(ErrorMessage{
+			client.writeJSON(ErrorMessage{
 				Error: "Please wait before sending another message",
 			})
 		}
 	}
 }
 
-func (ctx *ServerContext) sendMessage(client *Client, msg *OutgoingMessage) {
-	err := client.conn.WriteJSON(msg)
-	if err != nil {
-		if websocket.IsUnexpectedCloseError(err) {
-			log.Printf("connection closed: %v", err)
-			ctx.closeClient(client)
-		} else {
-			log.Printf("error: %v", err)
+func (ctx *ServerContext) clientWriter(client *Client) {
+	for {
+		pmsg, more := <-client.writeChan
+
+		if !more {
+			break
 		}
+
+		err := client.conn.WritePreparedMessage(pmsg)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err) {
+				log.Printf("connection closed: %v", err)
+				ctx.closeClient(client)
+			} else {
+				log.Printf("error: %v", err)
+			}
+		}
+	}
+
+	client.conn.Close()
+}
+
+func (ctx *ServerContext) clientListener(client *Client) {
+	for {
+		cursor, msg := ctx.messageBuffer.Get(
+			client.readCursor, &client.closed)
+
+		if client.closed {
+			break
+		}
+
+		client.writeChan <- msg.(*websocket.PreparedMessage)
+
+		client.readCursor = cursor + 1
 	}
 }
 
-func (ctx *ServerContext) handleMessages() {
+func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
+	var client Client
+
+	client.conn = ws
+	client.writeChan = make(chan *websocket.PreparedMessage, 10)
+	defer ctx.closeClient(&client)
+
+	// the connection will be closed by ctx.clientWriter
+	go ctx.clientWriter(&client)
+
+	err := ctx.setupClient(&client)
+	if err != nil {
+		log.Printf("Error: %v", err)
+		return
+	}
+
+	go ctx.clientListener(&client)
+
+	ctx.clientReader(&client)
+}
+
+func (ctx *ServerContext) janitorJob() {
 	for {
-		// Grab the next message from the broadcast channel
-		msg := <-ctx.broadcast
+		staleClients := atomic.LoadUint32(&ctx.nStaleClients)
+		if staleClients > 0 {
+			ctx.messageBuffer.WakeListeners()
+			atomic.AddUint32(&ctx.nStaleClients, -staleClients)
+		}
 
-		ctx.clients.Interate(func(node *Node) {
-			client := node.Data.(*Client)
-
-			ctx.sendMessage(client, &msg)
-		})
+		time.Sleep(JANITOR_PERIOD)
 	}
 }
 
 func (ctx *ServerContext) Start() {
-	go ctx.handleMessages()
+	go ctx.janitorJob()
 }

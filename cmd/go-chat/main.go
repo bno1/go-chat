@@ -22,6 +22,7 @@ var defaultConfig = Config{
 	MaxSocketMessageLen: 4096,
 	MaxMessagesPerSec:   1.0,
 	MaxMessagesBurst:    3,
+	BacklogLength:       20,
 
 	// Users
 	MinUsernameLength: 3,

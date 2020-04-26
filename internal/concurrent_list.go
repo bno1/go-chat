@@ -44,7 +44,7 @@ func (n *Node) Remove() {
 	n.toRemove = true
 }
 
-func (n *Node) Removed() bool {
+func (n *Node) IsRemoved() bool {
 	return n.toRemove
 }
 
