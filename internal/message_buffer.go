@@ -3,6 +3,7 @@ package internal
 import (
 	"math"
 	"sync"
+	"sync/atomic"
 )
 
 func roundToNextPow2(v uint32) uint32 {
@@ -86,26 +87,27 @@ func (mb *MessageBuffer) Put(val interface{}) uint64 {
 	return cursor
 }
 
-func (mb *MessageBuffer) Get(cursor uint64, cancel *bool) (uint64, interface{}) {
-	if cancel != nil && *cancel {
+func (mb *MessageBuffer) Get(cursor uint64, cancel *uint32) (uint64, interface{}) {
+	var pos uint32
+	var e entry
+
+	if cancel != nil && atomic.LoadUint32(cancel) > 0 {
 		return 0, nil
 	}
 
 	mb.lock.RLock()
 
 	for cursor >= mb.counter {
-		if cancel != nil && *cancel {
-			return 0, nil
+		if cancel != nil && atomic.LoadUint32(cancel) > 0 {
+			goto returnCancel
 		}
 
 		mb.readCond.Wait()
 	}
 
-	if cancel != nil && *cancel {
-		return 0, nil
+	if cancel != nil && atomic.LoadUint32(cancel) > 0 {
+		goto returnCancel
 	}
-
-	var pos uint32
 
 	if mb.counter-cursor <= (uint64)(mb.size) {
 		pos = uint32(cursor) & mb.bitmask
@@ -113,11 +115,15 @@ func (mb *MessageBuffer) Get(cursor uint64, cancel *bool) (uint64, interface{}) 
 		pos = mb.tail
 	}
 
-	e := mb.buffer[pos]
+	e = mb.buffer[pos]
 
 	mb.lock.RUnlock()
 
 	return e.pos, e.val
+
+returnCancel:
+	mb.lock.RUnlock()
+	return 0, nil
 }
 
 func (mb *MessageBuffer) WakeListeners() {
