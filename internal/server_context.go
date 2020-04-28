@@ -22,7 +22,7 @@ type Client struct {
 	writeChan  chan *websocket.PreparedMessage
 	readCursor uint64
 
-	configHandle ConfigHandle
+	configHandle VersionedBoxHandle
 
 	tokenBucket     TokenBucket
 	lastMessageTime time.Time
@@ -31,7 +31,7 @@ type Client struct {
 }
 
 type ServerContext struct {
-	configStore   *ConfigStore  // live configuration
+	configBox     *VersionedBox // live configuration
 	messageBuffer MessageBuffer // buffer for broadcast messages
 
 	usernames sync.Map // usernames of connected users
@@ -40,9 +40,9 @@ type ServerContext struct {
 	nStaleClients uint32 // number of clients that have to be removed
 }
 
-func NewServerContext(configStore *ConfigStore) ServerContext {
+func NewServerContext(configBox *VersionedBox) ServerContext {
 	return ServerContext{
-		configStore:   configStore,
+		configBox:     configBox,
 		messageBuffer: NewMessageBuffer(MAX_MESSAGEBUFFER_SIZE),
 	}
 }
@@ -138,9 +138,11 @@ func (client *Client) writeErrorMessage(message string) error {
 func (ctx *ServerContext) setupClient(client *Client) error {
 	var err error
 
-	client.configHandle = ctx.configStore.GetHandle()
+	client.configHandle = ctx.configBox.GetHandle()
 
-	config, _ := client.configHandle.GetConfig()
+	configPtr, _ := client.configHandle.GetValue()
+
+	config := configPtr.(*Config)
 
 	client.conn.SetReadLimit(int64(config.MaxSocketMessageLen))
 
@@ -187,7 +189,9 @@ func (ctx *ServerContext) setupClient(client *Client) error {
 }
 
 func (client *Client) updateConfig() {
-	config, changed := client.configHandle.GetConfig()
+	configPtr, changed := client.configHandle.GetValue()
+
+	config := configPtr.(*Config)
 
 	if changed {
 		client.conn.SetReadLimit(int64(config.MaxSocketMessageLen))

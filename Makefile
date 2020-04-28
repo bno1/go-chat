@@ -1,7 +1,7 @@
 PROGRAM=go-chat
 ASSETFS_GOFILE=generated/bindata.go
 ASSETS_DIR=public/
-GOFLAGS= # -racer
+GOFLAGS= # -race
 
 ASSETS=$(shell find "$(ASSETS_DIR)" -type f)
 

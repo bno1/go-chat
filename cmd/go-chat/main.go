@@ -31,7 +31,7 @@ var defaultConfig = Config{
 
 type Context struct {
 	configFilePath      string
-	configStore         *ConfigStore
+	configBox           *VersionedBox
 	signalChannel       chan os.Signal
 	reloadConfigChannel chan void
 
@@ -60,7 +60,7 @@ func (ctx *Context) reloadConfig() {
 
 	log.Printf("Got config: %v", config)
 
-	ctx.configStore.UpdateConfig(config)
+	ctx.configBox.UpdateValue(&config)
 }
 
 func (ctx *Context) handleConfigUpdates() {
@@ -83,7 +83,7 @@ func (ctx *Context) handleConnection(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	// Init config with defaultConfig
-	configStore := NewConfigStore(defaultConfig)
+	configBox := NewVersionedBox(&defaultConfig)
 
 	// Websocket upgrader
 	upgrader := websocket.Upgrader{
@@ -95,11 +95,11 @@ func main() {
 	// Context
 	ctx := Context{
 		configFilePath:      defaultConfigFilePath,
-		configStore:         &configStore,
+		configBox:           &configBox,
 		signalChannel:       make(chan os.Signal, 10),
 		reloadConfigChannel: make(chan void),
 
-		serverCtx: NewServerContext(&configStore),
+		serverCtx: NewServerContext(&configBox),
 		upgrader:  upgrader,
 	}
 
