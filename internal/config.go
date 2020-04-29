@@ -21,4 +21,10 @@ type Config struct {
 
 	// Max length of a username
 	MaxUsernameLength uint `section:"Users"`
+
+	// Path to file containing banned IP addresses and ranges
+	BlacklistPath string `section:"IPBan"`
+
+	// Path to file containing IP addresses to allways allow
+	WhitelistPath string `section:"IPBan"`
 }

@@ -55,6 +55,8 @@ new Vue({
                     line = 'User \'' + username + '\' connected';
                 } else if (action === 'disconnect') {
                     line = 'User \'' + username + '\' disconnected';
+                } else if (action === 'ban') {
+                    line = 'User \'' + username + '\' has been banned';
                 } else {
                     line = 'User \'' + username + '\' ' + action  + 'ed';
                 }

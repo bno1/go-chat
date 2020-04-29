@@ -27,11 +27,16 @@ var defaultConfig = Config{
 	// Users
 	MinUsernameLength: 3,
 	MaxUsernameLength: 16,
+
+	// IPBan
+	BlacklistPath: "ip_blacklist.txt",
+	WhitelistPath: "ip_whitelist.txt",
 }
 
 type Context struct {
 	configFilePath      string
 	configBox           *VersionedBox
+	ipBansBox           *VersionedBox
 	signalChannel       chan os.Signal
 	reloadConfigChannel chan void
 
@@ -61,6 +66,18 @@ func (ctx *Context) reloadConfig() {
 	log.Printf("Got config: %v", config)
 
 	ctx.configBox.UpdateValue(&config)
+
+	ipBans, err := LoadIPBans(config.BlacklistPath, config.WhitelistPath)
+	if err != nil {
+		log.Printf("Failed to load ip bans: %v", err)
+		return
+	}
+
+	log.Printf("Got ip bans: %v", ipBans)
+
+	ctx.ipBansBox.UpdateValue(&ipBans)
+
+	ctx.serverCtx.NotifyConfigUpdate()
 }
 
 func (ctx *Context) handleConfigUpdates() {
@@ -83,7 +100,10 @@ func (ctx *Context) handleConnection(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	// Init config with defaultConfig
+	var emptyIPBans = EmptyIPBans()
+
 	configBox := NewVersionedBox(&defaultConfig)
+	ipBansBox := NewVersionedBox(&emptyIPBans)
 
 	// Websocket upgrader
 	upgrader := websocket.Upgrader{
@@ -96,12 +116,14 @@ func main() {
 	ctx := Context{
 		configFilePath:      defaultConfigFilePath,
 		configBox:           &configBox,
+		ipBansBox:           &ipBansBox,
 		signalChannel:       make(chan os.Signal, 10),
 		reloadConfigChannel: make(chan void),
 
-		serverCtx: NewServerContext(&configBox),
-		upgrader:  upgrader,
+		upgrader: upgrader,
 	}
+
+	ctx.serverCtx = NewServerContext(&configBox, ipBansBox.GetHandle())
 
 	// Load configuration
 	ctx.reloadConfig()

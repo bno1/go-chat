@@ -54,12 +54,10 @@ func (box *VersionedBox) UpdateValue(value interface{}) {
 }
 
 func (box *VersionedBox) GetHandle() VersionedBoxHandle {
-	handle := VersionedBoxHandle{
+	return VersionedBoxHandle{
 		version: 0,
 		box:     box,
 	}
-
-	return handle
 }
 
 func (handle *VersionedBoxHandle) GetValue() (interface{}, bool) {
