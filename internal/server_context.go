@@ -330,11 +330,11 @@ func (ctx *ServerContext) clientReader(client *Client) {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err) {
 				log.Printf("connection closed: %v", err)
-				break
+			} else {
+				log.Printf("error: %v", err)
 			}
 
-			log.Printf("error: %v", err)
-			continue
+			break
 		}
 
 		msgType, msg, err := ParseMessage(msgData, "")
