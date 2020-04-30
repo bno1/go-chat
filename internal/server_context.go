@@ -390,6 +390,9 @@ func (ctx *ServerContext) clientListener(client *Client) {
 		client.readCursor = cursor + 1
 	}
 
+	log.Printf("User \"%s\" disconnected, remote addr %v, local addr %v",
+		client.username, client.conn.RemoteAddr(), client.conn.LocalAddr())
+
 	close(client.writeChan)
 }
 
@@ -409,6 +412,9 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
 		log.Printf("Error: %v", err)
 		return
 	}
+
+	log.Printf("User \"%s\" connected, remote addr %v, local addr %v",
+		client.username, ws.RemoteAddr(), ws.LocalAddr())
 
 	go ctx.clientListener(&client)
 
