@@ -93,33 +93,32 @@ func (ctx *ServerContext) closeClient(client *Client, lockUsernames bool) {
 func (ctx *ServerContext) handleConnectionInit(
 	client *Client,
 	config *Config,
-) error {
+) (error, bool) {
 	_, data, err := client.conn.ReadMessage()
 	if err != nil {
-		log.Printf("error: %v", err)
-		return err
+		return err, false
 	}
 
 	_, v, err := ParseMessage(data, INIT_MESSAGE)
 	if err != nil {
-		return err
+		return err, true
 	}
 
 	msg := v.(*InitMessage)
 
 	if uint(len(msg.Username)) < config.MinUsernameLength {
-		return fmt.Errorf("Username too short")
+		return fmt.Errorf("Username too short"), true
 	}
 
 	if uint(len(msg.Username)) > config.MaxUsernameLength {
-		return fmt.Errorf("Username too long")
+		return fmt.Errorf("Username too long"), true
 	}
 
 	ctx.usernamesLock.Lock()
 
 	if ctx.checkBan(client) {
 		ctx.usernamesLock.Unlock()
-		return fmt.Errorf("You have been banned")
+		return fmt.Errorf("You have been banned"), false
 	}
 
 	_, present := ctx.usernames[msg.Username]
@@ -133,10 +132,10 @@ func (ctx *ServerContext) handleConnectionInit(
 	ctx.usernamesLock.Unlock()
 
 	if present {
-		return fmt.Errorf("Username already used")
+		return fmt.Errorf("Username already used"), true
 	}
 
-	return nil
+	return nil, false
 }
 
 func makePreparedMessage(data []byte) (*websocket.PreparedMessage, error) {
@@ -245,7 +244,7 @@ func (ctx *ServerContext) setupClient(client *Client) error {
 	}
 
 	for {
-		initErr := ctx.handleConnectionInit(client, config)
+		initErr, canRetry := ctx.handleConnectionInit(client, config)
 		if initErr == nil {
 			m, err := NewStatsMessage(atomic.LoadUint32(&ctx.nClients))
 			if err != nil {
@@ -262,7 +261,12 @@ func (ctx *ServerContext) setupClient(client *Client) error {
 			return initErr
 		} else {
 			client.writeErrorMessage(initErr.Error())
-			return initErr
+
+			if canRetry {
+				continue
+			} else {
+				break
+			}
 		}
 	}
 
