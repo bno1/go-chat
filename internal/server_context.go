@@ -18,6 +18,8 @@ type Client struct {
 	username string
 	conn     *websocket.Conn
 
+	realIP net.IP
+
 	closed uint32
 
 	writeChan  chan *websocket.PreparedMessage
@@ -206,30 +208,23 @@ func (client *Client) writeErrorMessage(message string) error {
 	return client.writeMessage(m)
 }
 
-func (client *Client) getRemoteIP() (net.IP, error) {
-	switch addr := client.conn.RemoteAddr().(type) {
+func getAddrIP(addr net.Addr) (net.IP, error) {
+	switch taddr := addr.(type) {
 	case *net.IPNet:
-		return addr.IP, nil
+		return taddr.IP, nil
 	case *net.IPAddr:
-		return addr.IP, nil
+		return taddr.IP, nil
 	case *net.UDPAddr:
-		return addr.IP, nil
+		return taddr.IP, nil
 	case *net.TCPAddr:
-		return addr.IP, nil
+		return taddr.IP, nil
 	default:
-		return nil, fmt.Errorf("Unknown address format \"%v\"",
-			client.conn.RemoteAddr())
+		return nil, fmt.Errorf("Unknown address format \"%v\"", addr)
 	}
 }
 
 func (client *Client) checkBan(ipBans *IPBans) bool {
-	ip, err := client.getRemoteIP()
-	if err != nil {
-		log.Printf("error: %v", err)
-		return false
-	}
-
-	banned, err := ipBans.IsBanned(ip)
+	banned, err := ipBans.IsBanned(client.realIP)
 	if err != nil {
 		log.Printf("error: %v", err)
 		return false
@@ -408,6 +403,9 @@ func (ctx *ServerContext) clientWriter(client *Client) {
 		}
 	}
 
+	log.Printf("User \"%s\" disconnected, remote addr %v, local addr %v",
+		client.username, client.realIP, client.conn.LocalAddr())
+
 	client.conn.Close()
 }
 
@@ -425,18 +423,32 @@ func (ctx *ServerContext) clientListener(client *Client) {
 		client.readCursor = cursor + 1
 	}
 
-	log.Printf("User \"%s\" disconnected, remote addr %v, local addr %v",
-		client.username, client.conn.RemoteAddr(), client.conn.LocalAddr())
-
 	close(client.writeChan)
 }
 
-func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
+func (ctx *ServerContext) HandleConnection(ws *websocket.Conn, realIP net.IP) {
 	var client Client
 
 	client.conn = ws
 	client.writeChan = make(chan *websocket.PreparedMessage, 10)
 	defer ctx.closeClient(&client, true)
+
+	if realIP != nil {
+		client.realIP = realIP
+	} else {
+		realIP, err := getAddrIP(ws.RemoteAddr())
+		if err != nil {
+			log.Printf("error: %v", err)
+			return
+		}
+
+		if realIP == nil {
+			log.Printf("Failed to parse IP: %v", ws.RemoteAddr())
+			return
+		}
+
+		client.realIP = realIP
+	}
 
 	// the connection will be closed by ctx.clientWriter
 	// the channel will be closed by ctx.clientListener
@@ -449,7 +461,7 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
 	}
 
 	log.Printf("User \"%s\" connected, remote addr %v, local addr %v",
-		client.username, ws.RemoteAddr(), ws.LocalAddr())
+		client.username, client.realIP, ws.LocalAddr())
 
 	go ctx.clientListener(&client)
 
