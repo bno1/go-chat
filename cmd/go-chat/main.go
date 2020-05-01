@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -88,6 +89,9 @@ func (ctx *Context) handleConfigUpdates() {
 }
 
 func (ctx *Context) handleConnection(w http.ResponseWriter, r *http.Request) {
+	realIPStr := r.Header.Get("X-Real-IP")
+	realIP := net.ParseIP(realIPStr)
+
 	// Upgrade initial GET request to a websocket
 	ws, err := ctx.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -95,7 +99,7 @@ func (ctx *Context) handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx.serverCtx.HandleConnection(ws)
+	ctx.serverCtx.HandleConnection(ws, realIP)
 }
 
 func main() {

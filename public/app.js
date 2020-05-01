@@ -1,3 +1,14 @@
+function unixToLocalTime(timestamp) {
+    // Timestamp is in seconds, but Date expects it in milliseconds
+    return new Date(timestamp * 1000);
+}
+
+function formateUnixTimestamp(timestamp) {
+    var date = unixToLocalTime(timestamp);
+
+    return date.toLocaleTimeString();
+}
+
 new Vue({
   el: '#app',
 
@@ -106,6 +117,14 @@ new Vue({
 
           self.chatScrollToBottom();
         }
+
+        else if (msg.type === "hello") {
+          if (self.joining) {
+            self.joining = false;
+            self.joined = true;
+          }
+        } 
+
         else if (msg.type === "stats") {
           if (self.joining) {
             self.joining = false;
@@ -129,6 +148,9 @@ new Vue({
         else if (msg.type === "user_change") {
           var username = msg.message.username;
           var action = msg.message.action;
+
+          var time = formateUnixTimestamp(msg.message.timestamp);
+          self.setOnlineUsersCount(msg.message.user_count);
 
           var line = '';
 
