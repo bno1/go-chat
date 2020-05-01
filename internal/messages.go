@@ -59,10 +59,17 @@ type UserChangeMessage struct {
 	UserCount uint32 `json:"user_count"`
 }
 
-func ParseMessage(data []byte, expected string) (msgType string, msg interface{}, err error) {
+type EncodedMessage struct {
+	originalMsg interface{}
+	msg         []byte
+}
+
+func ParseMessage(
+	data []byte,
+	expected string,
+) (msgType string, msg interface{}, err error) {
 	var frame Frame
 
-	msgType = ""
 	msg = nil
 
 	err = json.Unmarshal(data, &frame)
@@ -115,71 +122,102 @@ func ParseMessage(data []byte, expected string) (msgType string, msg interface{}
 	return
 }
 
-func NewOutgoingMessage(username string, message string) ([]byte, error) {
+func NewOutgoingMessage(
+	username string,
+	message string,
+) (EncodedMessage, error) {
 	var frame Frame
+	var emsg EncodedMessage
 	var err error
 
-	frame.Type = RECV_MESSAGE
-	frame.Message, err = json.Marshal(OutgoingMessage{
+	msg := OutgoingMessage{
 		Timestmap: uint64(time.Now().Unix()),
 		Username:  username,
 		Message:   message,
-	})
-
-	if err != nil {
-		return nil, err
 	}
 
-	return json.Marshal(frame)
+	frame.Type = RECV_MESSAGE
+	frame.Message, err = json.Marshal(&msg)
+	if err != nil {
+		return emsg, err
+	}
+
+	emsg.originalMsg = &msg
+	emsg.msg, err = json.Marshal(&frame)
+
+	return emsg, err
 }
 
-func NewHelloMessage(userCount uint32) ([]byte, error) {
+func NewHelloMessage(
+	userCount uint32,
+) (EncodedMessage, error) {
 	var frame Frame
+	var emsg EncodedMessage
 	var err error
+
+	msg := HelloMessage{
+		UserCount: userCount,
+	}
 
 	frame.Type = HELLO_MESSAGE
-	frame.Message, err = json.Marshal(HelloMessage{
-		UserCount: userCount,
-	})
-
+	frame.Message, err = json.Marshal(&msg)
 	if err != nil {
-		return nil, err
+		return emsg, err
 	}
 
-	return json.Marshal(frame)
+	emsg.originalMsg = &msg
+	emsg.msg, err = json.Marshal(&frame)
+
+	return emsg, err
 }
 
-func NewUserChangeMessage(username string, action string, userCount uint32) ([]byte, error) {
+func NewUserChangeMessage(
+	username string,
+	action string,
+	userCount uint32,
+) (EncodedMessage, error) {
 	var frame Frame
+	var emsg EncodedMessage
 	var err error
 
-	frame.Type = USER_CHANGE_MESSAGE
-	frame.Message, err = json.Marshal(UserChangeMessage{
+	msg := UserChangeMessage{
 		Timestmap: uint64(time.Now().Unix()),
 		Username:  username,
 		Action:    action,
 		UserCount: userCount,
-	})
-
-	if err != nil {
-		return nil, err
 	}
 
-	return json.Marshal(frame)
+	frame.Type = USER_CHANGE_MESSAGE
+	frame.Message, err = json.Marshal(&msg)
+	if err != nil {
+		return emsg, err
+	}
+
+	emsg.originalMsg = &msg
+	emsg.msg, err = json.Marshal(&frame)
+
+	return emsg, err
 }
 
-func NewErrorMessage(message string) ([]byte, error) {
+func NewErrorMessage(
+	message string,
+) (EncodedMessage, error) {
 	var frame Frame
+	var emsg EncodedMessage
 	var err error
 
-	frame.Type = ERROR_MESSAGE
-	frame.Message, err = json.Marshal(ErrorMessage{
+	msg := ErrorMessage{
 		Error: message,
-	})
-
-	if err != nil {
-		return nil, err
 	}
 
-	return json.Marshal(frame)
+	frame.Type = ERROR_MESSAGE
+	frame.Message, err = json.Marshal(&msg)
+	if err != nil {
+		return emsg, err
+	}
+
+	emsg.originalMsg = &msg
+	emsg.msg, err = json.Marshal(&frame)
+
+	return emsg, err
 }

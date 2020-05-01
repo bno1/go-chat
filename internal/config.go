@@ -27,4 +27,10 @@ type Config struct {
 
 	// Path to file containing IP addresses to allways allow
 	WhitelistPath string `section:"IPBan"`
+
+	// File to write errors to. Leave empty to print errors to stdout
+	ErrorLog string `section:"Logging"`
+
+	// File to write chat logs to. Leave empty to print them to stdout
+	ChatLog string `section:"Logging"`
 }
