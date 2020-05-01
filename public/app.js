@@ -1,3 +1,14 @@
+function unixToLocalTime(timestamp) {
+    // Timestamp is in seconds, but Date expects it in milliseconds
+    return new Date(timestamp * 1000);
+}
+
+function formateUnixTimestamp(timestamp) {
+    var date = unixToLocalTime(timestamp);
+
+    return date.toLocaleTimeString();
+}
+
 new Vue({
   el: '#app',
 
@@ -39,8 +50,10 @@ new Vue({
           self.joined = true;
         }
       } else if (msg.type === "recv") {
+        var time = formateUnixTimestamp(msg.message.timestamp);
+
         self.chatContent += '<div class="message-list">' +
-          '<div class="msg">' +
+          '<div class="msg">[' + time + '] ' +
           '<span class="user">' + msg.message.username + '</span>' +
           emojione.toImage(msg.message.message) // Parse emojis
           +
@@ -49,6 +62,7 @@ new Vue({
         var username = msg.message.username;
         var action = msg.message.action;
         var userCount = msg.message.user_count;
+        var time = formateUnixTimestamp(msg.message.timestamp);
 
         var line = '';
 
@@ -63,7 +77,7 @@ new Vue({
         }
 
         self.chatContent += '<div class="message-list">' +
-          '<div class="msg"><span class="user">[Info]</span>' +
+          '<div class="msg">[' + time + '] <span class="user">[Info]</span>' +
           line + '</div></div>';
 
         if (userCount != null) {

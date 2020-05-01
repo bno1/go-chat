@@ -3,6 +3,7 @@ package internal
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 const (
@@ -32,8 +33,10 @@ type IncomingMessage struct {
 
 // Outgoing message object
 type OutgoingMessage struct {
-	Username string `json:"username"`
-	Message  string `json:"message"`
+	// Unix Timestmap
+	Timestmap uint64 `json:"timestamp"`
+	Username  string `json:"username"`
+	Message   string `json:"message"`
 }
 
 // Error message
@@ -48,8 +51,10 @@ type HelloMessage struct {
 
 // User change
 type UserChangeMessage struct {
-	Username string `json:"username"`
-	Action   string `json:"action"`
+	// Unix Timestmap
+	Timestmap uint64 `json:"timestamp"`
+	Username  string `json:"username"`
+	Action    string `json:"action"`
 
 	UserCount uint32 `json:"user_count"`
 }
@@ -116,8 +121,9 @@ func NewOutgoingMessage(username string, message string) ([]byte, error) {
 
 	frame.Type = RECV_MESSAGE
 	frame.Message, err = json.Marshal(OutgoingMessage{
-		Username: username,
-		Message:  message,
+		Timestmap: uint64(time.Now().Unix()),
+		Username:  username,
+		Message:   message,
 	})
 
 	if err != nil {
@@ -149,6 +155,7 @@ func NewUserChangeMessage(username string, action string, userCount uint32) ([]b
 
 	frame.Type = USER_CHANGE_MESSAGE
 	frame.Message, err = json.Marshal(UserChangeMessage{
+		Timestmap: uint64(time.Now().Unix()),
 		Username:  username,
 		Action:    action,
 		UserCount: userCount,
