@@ -11,7 +11,7 @@ const (
 	SEND_MESSAGE        = "send"
 	RECV_MESSAGE        = "recv"
 	ERROR_MESSAGE       = "error"
-	STATS_MESSAGE       = "stats"
+	HELLO_MESSAGE       = "hello"
 	USER_CHANGE_MESSAGE = "user_change"
 )
 
@@ -41,8 +41,8 @@ type ErrorMessage struct {
 	Error string `json:"error"`
 }
 
-// Stats mesage
-type StatsMessage struct {
+// Hello message
+type HelloMessage struct {
 	UserCount uint32 `json:"user_count"`
 }
 
@@ -50,6 +50,8 @@ type StatsMessage struct {
 type UserChangeMessage struct {
 	Username string `json:"username"`
 	Action   string `json:"action"`
+
+	UserCount uint32 `json:"user_count"`
 }
 
 func ParseMessage(data []byte, expected string) (msgType string, msg interface{}, err error) {
@@ -87,8 +89,8 @@ func ParseMessage(data []byte, expected string) (msgType string, msg interface{}
 	case ERROR_MESSAGE:
 		m = new(ErrorMessage)
 
-	case STATS_MESSAGE:
-		m = new(StatsMessage)
+	case HELLO_MESSAGE:
+		m = new(HelloMessage)
 
 	case USER_CHANGE_MESSAGE:
 		m = new(UserChangeMessage)
@@ -125,12 +127,12 @@ func NewOutgoingMessage(username string, message string) ([]byte, error) {
 	return json.Marshal(frame)
 }
 
-func NewStatsMessage(userCount uint32) ([]byte, error) {
+func NewHelloMessage(userCount uint32) ([]byte, error) {
 	var frame Frame
 	var err error
 
-	frame.Type = STATS_MESSAGE
-	frame.Message, err = json.Marshal(StatsMessage{
+	frame.Type = HELLO_MESSAGE
+	frame.Message, err = json.Marshal(HelloMessage{
 		UserCount: userCount,
 	})
 
@@ -141,14 +143,15 @@ func NewStatsMessage(userCount uint32) ([]byte, error) {
 	return json.Marshal(frame)
 }
 
-func NewUserChangeMessage(username string, action string) ([]byte, error) {
+func NewUserChangeMessage(username string, action string, userCount uint32) ([]byte, error) {
 	var frame Frame
 	var err error
 
 	frame.Type = USER_CHANGE_MESSAGE
 	frame.Message, err = json.Marshal(UserChangeMessage{
-		Username: username,
-		Action:   action,
+		Username:  username,
+		Action:    action,
+		UserCount: userCount,
 	})
 
 	if err != nil {

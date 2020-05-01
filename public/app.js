@@ -33,15 +33,11 @@ new Vue({
         self.chatContent += '<div class="message-list">' +
           '<div class="msg"><span class="user">[Error]</span>' +
           msg.message.error + '</div></div>';
-      } else if (msg.type === "stats") {
+      } else if (msg.type === "hello") {
         if (self.joining) {
           self.joining = false;
           self.joined = true;
         }
-
-        self.chatContent += '<div class="message-list">' +
-          '<div class="msg"><span class="user">[Info]</span>' +
-          msg.message.user_count + ' user(s) in chat</div></div>';
       } else if (msg.type === "recv") {
         self.chatContent += '<div class="message-list">' +
           '<div class="msg">' +
@@ -52,6 +48,7 @@ new Vue({
       } else if (msg.type === "user_change") {
         var username = msg.message.username;
         var action = msg.message.action;
+        var userCount = msg.message.user_count;
 
         var line = '';
 
@@ -68,6 +65,12 @@ new Vue({
         self.chatContent += '<div class="message-list">' +
           '<div class="msg"><span class="user">[Info]</span>' +
           line + '</div></div>';
+
+        if (userCount != null) {
+            self.chatContent += '<div class="message-list">' +
+              '<div class="msg"><span class="user">[Info]</span>' +
+              userCount + ' user(s) in chat</div></div>';
+        }
       }
 
       var element = document.getElementById('message-wrap');

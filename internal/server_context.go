@@ -83,11 +83,45 @@ func (ctx *ServerContext) closeClient(client *Client, lockUsernames bool) {
 			if lockUsernames {
 				ctx.usernamesLock.Unlock()
 			}
-
-			// Decrement numer of clients
-			atomic.AddUint32(&ctx.nClients, ^uint32(0))
 		}
 	})
+}
+
+func (ctx *ServerContext) notifyClientConnect(client *Client) error {
+	userCount := atomic.AddUint32(&ctx.nClients, 1)
+
+	msg, err := NewUserChangeMessage(client.username, "connect", userCount)
+	if err != nil {
+		return err
+	}
+
+	ctx.broadcastMessage(msg)
+	return nil
+}
+
+func (ctx *ServerContext) notifyClientDisconnect(client *Client) error {
+	userCount := atomic.AddUint32(&ctx.nClients, ^uint32(0))
+
+	msg, err := NewUserChangeMessage(client.username, "disconnect", userCount)
+	if err != nil {
+		return err
+	}
+
+	ctx.broadcastMessage(msg)
+	return nil
+
+}
+
+func (ctx *ServerContext) notifyClientBan(client *Client) error {
+	userCount := atomic.AddUint32(&ctx.nClients, ^uint32(0))
+
+	msg, err := NewUserChangeMessage(client.username, "ban", userCount)
+	if err != nil {
+		return err
+	}
+
+	ctx.broadcastMessage(msg)
+	return nil
 }
 
 func (ctx *ServerContext) handleConnectionInit(
@@ -126,7 +160,6 @@ func (ctx *ServerContext) handleConnectionInit(
 	if !present {
 		client.username = msg.Username
 		ctx.usernames[msg.Username] = client
-		atomic.AddUint32(&ctx.nClients, 1)
 	}
 
 	ctx.usernamesLock.Unlock()
@@ -246,7 +279,7 @@ func (ctx *ServerContext) setupClient(client *Client) error {
 	for {
 		initErr, canRetry := ctx.handleConnectionInit(client, config)
 		if initErr == nil {
-			m, err := NewStatsMessage(atomic.LoadUint32(&ctx.nClients))
+			m, err := NewHelloMessage(atomic.LoadUint32(&ctx.nClients))
 			if err != nil {
 				return err
 			}
@@ -270,11 +303,9 @@ func (ctx *ServerContext) setupClient(client *Client) error {
 		}
 	}
 
-	ucm, err := NewUserChangeMessage(client.username, "connect")
+	err = ctx.notifyClientConnect(client)
 	if err != nil {
 		log.Printf("error: %v", err)
-	} else {
-		ctx.broadcastMessage(ucm)
 	}
 
 	return nil
@@ -424,11 +455,9 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn) {
 
 	ctx.clientReader(&client)
 
-	uscm, err := NewUserChangeMessage(client.username, "disconnect")
+	err = ctx.notifyClientDisconnect(&client)
 	if err != nil {
 		log.Printf("error: %v", err)
-	} else {
-		ctx.broadcastMessage(uscm)
 	}
 }
 
@@ -473,9 +502,9 @@ func (ctx *ServerContext) ipBansChecker() {
 			if client.checkBan(ipBans) {
 				client.writeErrorMessage("You have beeen banned")
 
-				msg, err := NewUserChangeMessage(client.username, "ban")
-				if err == nil {
-					ctx.broadcastMessage(msg)
+				err := ctx.notifyClientDisconnect(client)
+				if err != nil {
+					log.Printf("error: %v", err)
 				}
 
 				ctx.closeClient(client, false)
