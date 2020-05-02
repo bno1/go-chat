@@ -5,7 +5,7 @@
     <title>ceaun ceaut</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/emojione/2.2.6/assets/css/emojione.min.css"/>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?2">
 </head>
 <body>
 
@@ -13,13 +13,13 @@
   <div class="content">
     <header>
       <div class="users">
-        <i class="icon icon-users" v-if="joined">&#xf064;</i> <span id="users-online">{{ usersOnline !== 0 ? usersOnline : ''}}</span>
+        <i class="icon icon-users" v-if="joined">&#xf064;</i> <span id="users-online" v-if="joined">{{ usersOnline !== 0 ? usersOnline : ''}}</span>
       </div>
       <div class="title">
         ceaun ceaut
       </div>
       <div class="settings">
-        <a @click="openSettings" href="#"><i class="icon icon-settings">&#xe800;</i></a>
+        <a @click="openSettings" href="#" v-if="settingsOpen"><i class="icon icon-settings">&#xe800;</i></a>
         <div class="settings-box" v-if="settingsOpen">
           
         </div>

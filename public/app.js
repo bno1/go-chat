@@ -1,12 +1,13 @@
 function unixToLocalTime(timestamp) {
     // Timestamp is in seconds, but Date expects it in milliseconds
     return new Date(timestamp * 1000);
+    
 }
 
 function formateUnixTimestamp(timestamp) {
     var date = unixToLocalTime(timestamp);
 
-    return date.toLocaleTimeString();
+    return date.getHours() + ':' + (date.getMinutes() < 10? '0' : '') + date.getMinutes();
 }
 
 new Vue({
@@ -110,10 +111,7 @@ new Vue({
           if (self.joining) {
             self.joining = false
           }
-          // Materialize.toast(msg.message.error, 5000);
-          self.chatContent += '<div class="message-list">' +
-            '<div class="msg"><span class="user">[Error]</span>' +
-            msg.message.error + '</div></div>';
+          self.showNotice(msg.message.error, 5);
 
           self.chatScrollToBottom();
         }
@@ -136,11 +134,15 @@ new Vue({
         }
 
         else if (msg.type === "recv") {
-          self.chatContent += '<div class="message-list">' +
+          var time = formateUnixTimestamp(msg.message.timestamp);
+          var cls = (msg.message.username == self.username ? 'message-list me' : 'message-list')
+          self.chatContent += '<div class="'+ cls +'">' +
+            '<div class="user">' + msg.message.username + '</div>' +
             '<div class="msg">' +
-            '<span class="user">' + msg.message.username + '</span>' +
-            emojione.toImage(msg.message.message) // Parse emojis
-            +'</div></div>';
+            emojione.toImage(msg.message.message) + // Parse emojis
+            '</div>'+
+            '<div class="time">'+ time +'</div>' +
+            '</div>';
 
             self.chatScrollToBottom();
         }
@@ -154,19 +156,36 @@ new Vue({
 
           var line = '';
 
-          if (action === 'connect') {
-            line = username + ' s-a conectat.';
-          } else if (action === 'disconnect') {
-            line = username + ' s-a deconectat.';
-          } else if (action === 'ban') {
-            line = username + ' a fost banat. :(';
-          } else {
-            line = username + action + 'ed';
+          if (username == self.username) {
+            if (action === 'connect') {
+              line = username + ', te-ai conectat.';
+            } else if (action === 'disconnect') {
+              line = username + ', ai fost deconectat.';
+            } else if (action === 'ban') {
+              line = username + ', ai fost banat. :(';
+            } else {
+              line = username + ' ' + action + 'ed';
+            }
+          }
+          else {
+            if (action === 'connect') {
+              line = username + ' s-a conectat.';
+            } else if (action === 'disconnect') {
+              line = username + ' s-a deconectat.';
+            } else if (action === 'ban') {
+              line = username + ' a fost banat. :(';
+            } else {
+              line = username + action + 'ed';
+            }
           }
 
           self.chatContent += '<div class="message-list">' +
-            '<div class="msg"><span class="user">[Info]</span>' +
-            line + '</div></div>';
+            '<div class="system">[Info]</div>' +
+            '<div class="msg">' +
+            line + 
+            '</div>' +
+            '<div class="time">'+ time +'</div>' +
+            '</div>';
 
           self.chatScrollToBottom();
         }
@@ -179,8 +198,8 @@ new Vue({
     chatScrollToBottom: function() {
       setTimeout(function(){
         var element = document.getElementById('message-wrap');
-        element.scrollTop = element.scrollHeight; // Auto scroll to the bottom
-      }, 100);
+        element.scrollTop = element.scrollHeight + 10; // Auto scroll to the bottom
+      }, 200);
     },
 
     openSettings: function() {
