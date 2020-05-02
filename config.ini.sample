@@ -11,3 +11,7 @@ MaxUsernameLength = 16
 [IPBan]
 BlacklistPath = ip_blacklist.txt
 WhitelistPath = ip_whitelist.txt
+
+[Logging]
+ErrorLog =
+ChatLog = chat.log

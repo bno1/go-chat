@@ -32,6 +32,10 @@ var defaultConfig = Config{
 	// IPBan
 	BlacklistPath: "ip_blacklist.txt",
 	WhitelistPath: "ip_whitelist.txt",
+
+	// Logging
+	ErrorLog: "",
+	ChatLog:  "",
 }
 
 type Context struct {

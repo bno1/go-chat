@@ -14,6 +14,12 @@ import (
 const MAX_MESSAGEBUFFER_SIZE = 4096
 const JANITOR_PERIOD = 10 * time.Second
 
+type PreparedMessage struct {
+	sourceIP    net.IP
+	originalMsg interface{}
+	msg         *websocket.PreparedMessage
+}
+
 type Client struct {
 	username string
 	conn     *websocket.Conn
@@ -47,6 +53,8 @@ type ServerContext struct {
 
 	configLock *sync.RWMutex
 	configCond *sync.Cond
+
+	logConfig LogConfiguration
 }
 
 func NewServerContext(
@@ -62,11 +70,13 @@ func NewServerContext(
 		usernames:     make(map[string]*Client, 128),
 		configLock:    &configLock,
 		configCond:    sync.NewCond(configLock.RLocker()),
+		logConfig:     NewLogConfiguration(configBox.GetHandle()),
 	}
 }
 
 func (ctx *ServerContext) NotifyConfigUpdate() {
 	ctx.configCond.Broadcast()
+	ctx.logConfig.Update()
 }
 
 func (ctx *ServerContext) closeClient(client *Client, lockUsernames bool) {
@@ -92,24 +102,24 @@ func (ctx *ServerContext) closeClient(client *Client, lockUsernames bool) {
 func (ctx *ServerContext) notifyClientConnect(client *Client) error {
 	userCount := atomic.AddUint32(&ctx.nClients, 1)
 
-	msg, err := NewUserChangeMessage(client.username, "connect", userCount)
+	emsg, err := NewUserChangeMessage(client.username, "connect", userCount)
 	if err != nil {
 		return err
 	}
 
-	ctx.broadcastMessage(msg)
+	ctx.broadcastMessage(client, emsg)
 	return nil
 }
 
 func (ctx *ServerContext) notifyClientDisconnect(client *Client) error {
 	userCount := atomic.AddUint32(&ctx.nClients, ^uint32(0))
 
-	msg, err := NewUserChangeMessage(client.username, "disconnect", userCount)
+	emsg, err := NewUserChangeMessage(client.username, "disconnect", userCount)
 	if err != nil {
 		return err
 	}
 
-	ctx.broadcastMessage(msg)
+	ctx.broadcastMessage(client, emsg)
 	return nil
 
 }
@@ -117,12 +127,12 @@ func (ctx *ServerContext) notifyClientDisconnect(client *Client) error {
 func (ctx *ServerContext) notifyClientBan(client *Client) error {
 	userCount := atomic.AddUint32(&ctx.nClients, ^uint32(0))
 
-	msg, err := NewUserChangeMessage(client.username, "ban", userCount)
+	emsg, err := NewUserChangeMessage(client.username, "ban", userCount)
 	if err != nil {
 		return err
 	}
 
-	ctx.broadcastMessage(msg)
+	ctx.broadcastMessage(client, emsg)
 	return nil
 }
 
@@ -177,13 +187,20 @@ func makePreparedMessage(data []byte) (*websocket.PreparedMessage, error) {
 	return websocket.NewPreparedMessage(websocket.TextMessage, data)
 }
 
-func (ctx *ServerContext) broadcastMessage(data []byte) error {
-	pmsg, err := makePreparedMessage(data)
+func (ctx *ServerContext) broadcastMessage(
+	source *Client,
+	emsg EncodedMessage,
+) error {
+	pmsg, err := makePreparedMessage(emsg.msg)
 	if err != nil {
 		return err
 	}
 
-	ctx.messageBuffer.Put(pmsg)
+	ctx.messageBuffer.Put(PreparedMessage{
+		sourceIP:    source.realIP,
+		originalMsg: emsg.originalMsg,
+		msg:         pmsg,
+	})
 
 	return nil
 }
@@ -205,7 +222,7 @@ func (client *Client) writeErrorMessage(message string) error {
 		return err
 	}
 
-	return client.writeMessage(m)
+	return client.writeMessage(m.msg)
 }
 
 func getAddrIP(addr net.Addr) (net.IP, error) {
@@ -279,7 +296,7 @@ func (ctx *ServerContext) setupClient(client *Client) error {
 				return err
 			}
 
-			err = client.writeMessage(m)
+			err = client.writeMessage(m.msg)
 			if err != nil {
 				return err
 			}
@@ -331,7 +348,7 @@ func (ctx *ServerContext) handleSendMessage(
 	if client.tokenBucket.TryConsumeToken() {
 		m, err := NewOutgoingMessage(client.username, msg.Message)
 		if err == nil {
-			err = ctx.broadcastMessage(m)
+			err = ctx.broadcastMessage(client, m)
 		}
 
 		if err != nil {
@@ -373,9 +390,9 @@ func (ctx *ServerContext) clientReader(client *Client) {
 			continue
 		}
 
-		switch msgType {
-		case SEND_MESSAGE:
-			ctx.handleSendMessage(client, msg.(*IncomingMessage))
+		switch m := msg.(type) {
+		case *IncomingMessage:
+			ctx.handleSendMessage(client, m)
 
 		default:
 			client.writeErrorMessage(
@@ -418,7 +435,7 @@ func (ctx *ServerContext) clientListener(client *Client) {
 			break
 		}
 
-		client.writeChan <- msg.(*websocket.PreparedMessage)
+		client.writeChan <- msg.(PreparedMessage).msg
 
 		client.readCursor = cursor + 1
 	}
@@ -526,7 +543,30 @@ func (ctx *ServerContext) ipBansChecker() {
 	}
 }
 
+func (ctx *ServerContext) chatLogger() {
+	var readCursor uint64 = 0
+
+	for {
+		cursor, msgPtr := ctx.messageBuffer.Get(readCursor, nil)
+
+		msg := msgPtr.(PreparedMessage)
+
+		switch m := msg.originalMsg.(type) {
+		case *OutgoingMessage:
+			t := time.Unix(int64(m.Timestmap), 0).Local()
+
+			ctx.logConfig.chatLogger.Printf(
+				"%04d/%02d/%02d %02d:%02d:%02d | %v | %s: %s",
+				t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(),
+				msg.sourceIP, m.Username, m.Message)
+		}
+
+		readCursor = cursor + 1
+	}
+}
+
 func (ctx *ServerContext) Start() {
 	go ctx.janitorJob()
 	go ctx.ipBansChecker()
+	go ctx.chatLogger()
 }
