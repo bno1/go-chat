@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -145,6 +146,26 @@ func main() {
 	// Configure websocket route
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ctx.handleConnection(w, r)
+	})
+
+	// GET stats
+	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		msg, err := ctx.serverCtx.GetStats()
+		if err != nil {
+			log.Printf("Error: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("content-length", fmt.Sprintf("%d", len(msg)))
+		w.Header().Set("content-encoding", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write(msg)
 	})
 
 	// Start config updater

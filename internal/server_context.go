@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -97,6 +98,14 @@ func (ctx *ServerContext) closeClient(client *Client, lockUsernames bool) {
 			}
 		}
 	})
+}
+
+func (ctx *ServerContext) GetStats() ([]byte, error) {
+	msg := HelloMessage{
+		UserCount: atomic.LoadUint32(&ctx.nClients),
+	}
+
+	return json.Marshal(&msg)
 }
 
 func (ctx *ServerContext) notifyClientConnect(client *Client) error {
