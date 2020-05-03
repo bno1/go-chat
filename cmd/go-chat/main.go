@@ -163,7 +163,7 @@ func main() {
 		}
 
 		w.Header().Set("content-length", fmt.Sprintf("%d", len(msg)))
-		w.Header().Set("content-encoding", "application/json; charset=utf-8")
+		w.Header().Set("content-type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write(msg)
 	})
