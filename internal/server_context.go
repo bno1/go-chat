@@ -47,7 +47,8 @@ type ServerContext struct {
 	ipBansHandle VersionedBoxHandle // ip bans
 
 	usernamesLock sync.RWMutex
-	usernames     map[string]*Client // usernames of connected users
+	users         map[string]*Client // connected users
+	usernameList  []string           // list of usernames
 
 	nClients      uint32 // number active clients
 	nStaleClients uint32 // number of clients that have to be removed
@@ -68,7 +69,8 @@ func NewServerContext(
 		configBox:     configBox,
 		messageBuffer: NewMessageBuffer(MAX_MESSAGEBUFFER_SIZE),
 		ipBansHandle:  ipBansHandle,
-		usernames:     make(map[string]*Client, 128),
+		users:         make(map[string]*Client, 128),
+		usernameList:  make([]string, 0),
 		configLock:    &configLock,
 		configCond:    sync.NewCond(configLock.RLocker()),
 		logConfig:     NewLogConfiguration(configBox.GetHandle()),
@@ -80,24 +82,12 @@ func (ctx *ServerContext) NotifyConfigUpdate() {
 	ctx.logConfig.Update()
 }
 
-func (ctx *ServerContext) closeClient(client *Client, lockUsernames bool) {
-	client.onceClose.Do(func() {
-		atomic.AddUint32(&client.closed, 1)
+func (ctx *ServerContext) refreshUserList() {
+	ctx.usernameList = ctx.usernameList[:0]
 
-		atomic.AddUint32(&ctx.nStaleClients, 1)
-
-		if len(client.username) > 0 {
-			if lockUsernames {
-				ctx.usernamesLock.Lock()
-			}
-
-			delete(ctx.usernames, client.username)
-
-			if lockUsernames {
-				ctx.usernamesLock.Unlock()
-			}
-		}
-	})
+	for k := range ctx.users {
+		ctx.usernameList = append(ctx.usernameList, k)
+	}
 }
 
 func (ctx *ServerContext) GetStats() ([]byte, error) {
@@ -108,41 +98,98 @@ func (ctx *ServerContext) GetStats() ([]byte, error) {
 	return json.Marshal(&msg)
 }
 
-func (ctx *ServerContext) notifyClientConnect(client *Client) error {
+func (ctx *ServerContext) connectClient(
+	client *Client,
+	username string,
+) (error, bool) {
+	ctx.usernamesLock.Lock()
+
+	if ctx.checkBan(client) {
+		ctx.usernamesLock.Unlock()
+		return fmt.Errorf("You have been banned"), false
+	}
+
+	_, present := ctx.users[username]
+
+	if present {
+		ctx.usernamesLock.Unlock()
+		return fmt.Errorf("Username already used"), true
+	}
+
+	client.username = username
+	ctx.users[username] = client
+
+	ctx.refreshUserList()
+
 	userCount := atomic.AddUint32(&ctx.nClients, 1)
 
-	emsg, err := NewUserChangeMessage(client.username, "connect", userCount)
+	emsg, err := NewUserChangeMessage(
+		client.username, "connect", userCount, ctx.usernameList)
 	if err != nil {
-		return err
+		atomic.AddUint32(&ctx.nClients, ^uint32(0))
+		delete(ctx.users, username)
+		ctx.refreshUserList()
+		ctx.usernamesLock.Unlock()
+
+		return err, false
 	}
 
+	ctx.usernamesLock.Unlock()
+
 	ctx.broadcastMessage(client, emsg)
-	return nil
+	return nil, false
 }
 
-func (ctx *ServerContext) notifyClientDisconnect(client *Client) error {
-	userCount := atomic.AddUint32(&ctx.nClients, ^uint32(0))
+func (ctx *ServerContext) disconnectClient(
+	client *Client,
+	reason string,
+	lockUserMap bool,
+) error {
+	var err error = nil
+	var emsg EncodedMessage
+	executed := false
 
-	emsg, err := NewUserChangeMessage(client.username, "disconnect", userCount)
-	if err != nil {
-		return err
+	client.onceClose.Do(func() {
+		if lockUserMap {
+			ctx.usernamesLock.Lock()
+		}
+
+		if len(client.username) == 0 {
+			if lockUserMap {
+				ctx.usernamesLock.Unlock()
+			}
+			return
+		}
+
+		atomic.AddUint32(&client.closed, 1)
+
+		atomic.AddUint32(&ctx.nStaleClients, 1)
+
+		delete(ctx.users, client.username)
+		client.username = ""
+		ctx.refreshUserList()
+
+		userCount := atomic.AddUint32(&ctx.nClients, ^uint32(0))
+
+		emsg, err = NewUserChangeMessage(
+			client.username, reason, userCount, ctx.usernameList)
+
+		if lockUserMap {
+			ctx.usernamesLock.Unlock()
+		}
+
+		executed = true
+	})
+
+	if !executed {
+		return nil
 	}
 
-	ctx.broadcastMessage(client, emsg)
-	return nil
-
-}
-
-func (ctx *ServerContext) notifyClientBan(client *Client) error {
-	userCount := atomic.AddUint32(&ctx.nClients, ^uint32(0))
-
-	emsg, err := NewUserChangeMessage(client.username, "ban", userCount)
-	if err != nil {
-		return err
+	if err == nil {
+		ctx.broadcastMessage(client, emsg)
 	}
 
-	ctx.broadcastMessage(client, emsg)
-	return nil
+	return err
 }
 
 func (ctx *ServerContext) handleConnectionInit(
@@ -169,27 +216,7 @@ func (ctx *ServerContext) handleConnectionInit(
 		return fmt.Errorf("Username too long"), true
 	}
 
-	ctx.usernamesLock.Lock()
-
-	if ctx.checkBan(client) {
-		ctx.usernamesLock.Unlock()
-		return fmt.Errorf("You have been banned"), false
-	}
-
-	_, present := ctx.usernames[msg.Username]
-
-	if !present {
-		client.username = msg.Username
-		ctx.usernames[msg.Username] = client
-	}
-
-	ctx.usernamesLock.Unlock()
-
-	if present {
-		return fmt.Errorf("Username already used"), true
-	}
-
-	return nil, false
+	return ctx.connectClient(client, msg.Username)
 }
 
 func makePreparedMessage(data []byte) (*websocket.PreparedMessage, error) {
@@ -324,11 +351,6 @@ func (ctx *ServerContext) setupClient(client *Client) error {
 		}
 	}
 
-	err = ctx.notifyClientConnect(client)
-	if err != nil {
-		log.Printf("error: %v", err)
-	}
-
 	return nil
 }
 
@@ -422,7 +444,7 @@ func (ctx *ServerContext) clientWriter(client *Client) {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err) {
 				log.Printf("connection closed: %v", err)
-				ctx.closeClient(client, true)
+				ctx.disconnectClient(client, "disconnect", true)
 			} else {
 				log.Printf("error: %v", err)
 			}
@@ -457,7 +479,7 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn, realIP net.IP) {
 
 	client.conn = ws
 	client.writeChan = make(chan *websocket.PreparedMessage, 10)
-	defer ctx.closeClient(&client, true)
+	defer ctx.disconnectClient(&client, "disconnect", true)
 
 	if realIP != nil {
 		client.realIP = realIP
@@ -465,11 +487,13 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn, realIP net.IP) {
 		realIP, err := getAddrIP(ws.RemoteAddr())
 		if err != nil {
 			log.Printf("error: %v", err)
+			ws.Close()
 			return
 		}
 
 		if realIP == nil {
 			log.Printf("Failed to parse IP: %v", ws.RemoteAddr())
+			ws.Close()
 			return
 		}
 
@@ -492,11 +516,6 @@ func (ctx *ServerContext) HandleConnection(ws *websocket.Conn, realIP net.IP) {
 	go ctx.clientListener(&client)
 
 	ctx.clientReader(&client)
-
-	err = ctx.notifyClientDisconnect(&client)
-	if err != nil {
-		log.Printf("error: %v", err)
-	}
 }
 
 func (ctx *ServerContext) janitorJob() {
@@ -536,16 +555,14 @@ func (ctx *ServerContext) ipBansChecker() {
 		ctx.configLock.RUnlock()
 
 		ctx.usernamesLock.Lock()
-		for _, client := range ctx.usernames {
+		for _, client := range ctx.users {
 			if client.checkBan(ipBans) {
 				client.writeErrorMessage("You have beeen banned")
 
-				err := ctx.notifyClientDisconnect(client)
+				err := ctx.disconnectClient(client, "ban", false)
 				if err != nil {
 					log.Printf("error: %v", err)
 				}
-
-				ctx.closeClient(client, false)
 			}
 		}
 		ctx.usernamesLock.Unlock()

@@ -56,7 +56,8 @@ type UserChangeMessage struct {
 	Username  string `json:"username"`
 	Action    string `json:"action"`
 
-	UserCount uint32 `json:"user_count"`
+	UserCount uint32   `json:"user_count"`
+	UserList  []string `json:"user_list"`
 }
 
 type EncodedMessage struct {
@@ -175,6 +176,7 @@ func NewUserChangeMessage(
 	username string,
 	action string,
 	userCount uint32,
+	userList []string,
 ) (EncodedMessage, error) {
 	var frame Frame
 	var emsg EncodedMessage
@@ -185,6 +187,7 @@ func NewUserChangeMessage(
 		Username:  username,
 		Action:    action,
 		UserCount: userCount,
+		UserList:  userList,
 	}
 
 	frame.Type = USER_CHANGE_MESSAGE

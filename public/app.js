@@ -150,6 +150,7 @@ new Vue({
         else if (msg.type === "user_change") {
           var username = msg.message.username;
           var action = msg.message.action;
+          var user_list = msg.message.user_list;
 
           var time = formateUnixTimestamp(msg.message.timestamp);
           self.setOnlineUsersCount(msg.message.user_count);
@@ -182,7 +183,15 @@ new Vue({
           self.chatContent += '<div class="message-list">' +
             '<div class="system">[Info]</div>' +
             '<div class="msg">' +
-            line + 
+            line +
+            '</div>' +
+            '<div class="time">'+ time +'</div>' +
+            '</div>';
+
+          self.chatContent += '<div class="message-list">' +
+            '<div class="system">[Info]</div>' +
+            '<div class="msg">User in chat: ' +
+            user_list.join(', ') +
             '</div>' +
             '<div class="time">'+ time +'</div>' +
             '</div>';
